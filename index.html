@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>子域名分配器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+        
+        .glass {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        
+        .gradient-orange {
+            background: linear-gradient(90deg, #f97316, #fb923c);
+        }
+        
+        .micro-hover:hover {
+            transform: translateY(-2px);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    </style>
+</head>
+
+<body class="bg-zinc-950 text-zinc-100 min-h-screen">
+    <div class="max-w-5xl mx-auto p-6">
+        <div class="flex justify-between items-center mb-10">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 gradient-orange rounded-2xl flex items-center justify-center text-white font-bold text-xl">S</div>
+                <h1 class="text-3xl font-semibold tracking-tight">子域名分配器</h1>
+            </div>
+            <div id="nav-user" class="hidden items-center gap-3">
+                <span id="user-email" class="text-sm text-zinc-400"></span>
+                <button onclick="logout()" class="px-4 py-2 text-sm rounded-2xl glass hover:bg-white/10">退出</button>
+            </div>
+        </div>
+
+        <!-- 登录页 -->
+        <div id="login-screen" class="glass rounded-3xl p-10 max-w-md mx-auto">
+            <h2 class="text-3xl font-semibold text-center mb-8">验证身份</h2>
+            <div class="space-y-6">
+                <div>
+                    <label class="block text-sm mb-2 text-zinc-400">邮箱</label>
+                    <input id="email-input" type="email" placeholder="yourname@a.b.com" class="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4 focus:outline-none focus:border-orange-400">
+                </div>
+                <button onclick="sendCode()" class="w-full gradient-orange text-white font-medium py-4 rounded-2xl micro-hover flex items-center justify-center gap-2">
+          <i class="fa-solid fa-paper-plane"></i> 发送验证码
+        </button>
+
+                <div id="code-section" class="hidden space-y-4">
+                    <label class="block text-sm mb-2 text-zinc-400">6位验证码</label>
+                    <input id="code-input" type="text" maxlength="6" placeholder="123456" class="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-center text-3xl tracking-widest focus:outline-none focus:border-orange-400">
+                    <button onclick="verifyCode()" class="w-full bg-white text-zinc-900 font-medium py-4 rounded-2xl micro-hover">验证并登录</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 仪表盘 -->
+        <div id="dashboard-screen" class="hidden">
+            <div class="flex justify-between items-end mb-6">
+                <h2 class="text-3xl font-semibold">我的子域名</h2>
+                <button onclick="showAddModal()" class="px-6 py-3 gradient-orange rounded-2xl flex items-center gap-2 micro-hover">
+          <i class="fa-solid fa-plus"></i> 添加新记录
+        </button>
+            </div>
+
+            <div id="quota-bar" class="glass rounded-3xl p-5 mb-8 flex items-center gap-4">
+                <div class="flex-1">
+                    <div class="flex justify-between text-sm mb-2"><span>已使用配额</span><span id="quota-text">0 / 5</span></div>
+                    <div class="h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div id="quota-progress" class="h-2 bg-gradient-to-r from-orange-400 to-amber-400 w-0 transition-all"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="records-list" class="space-y-4"></div>
+        </div>
+    </div>
+
+    <!-- 添加模态框 -->
+    <div id="add-modal" onclick="if(event.target===this)hideAddModal()" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+        <div class="glass rounded-3xl w-full max-w-lg mx-4 p-8">
+            <h3 class="text-2xl font-semibold mb-6">新增子域名</h3>
+            <div class="space-y-6">
+                <div>
+                    <label class="block text-sm mb-2">主域名</label>
+                    <select id="modal-main-domain" class="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4"></select>
+                </div>
+                <div>
+                    <label class="block text-sm mb-2">子域名前缀</label>
+                    <input id="modal-subdomain" type="text" placeholder="alice" class="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4">
+                </div>
+                <div>
+                    <label class="block text-sm mb-2">https://你的后端域名</label>
+                    <input id="modal-target" type="text" placeholder="your-project.pages.dev" class="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4">
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="hideAddModal()" class="flex-1 py-4 rounded-2xl glass">取消</button>
+                    <button onclick="addRecord()" class="flex-1 py-4 rounded-2xl gradient-orange text-white">确认添加</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://你的后端域名';
+
+        let currentToken = null;
+        let currentEmail = null;
+
+        async function apiFetch(endpoint, options = {}) {
+            const res = await fetch(API_BASE + endpoint, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-User-Token': currentToken || ''
+                },
+                ...options
+            });
+            return res.json();
+        }
+
+        async function sendCode() {
+            const email = document.getElementById('email-input').value.trim();
+            if (!email) return alert('请输入邮箱');
+            const res = await apiFetch('/api/send-code', {
+                method: 'POST',
+                body: JSON.stringify({
+                    email
+                })
+            });
+            if (res.success) {
+                document.getElementById('code-section').classList.remove('hidden');
+                alert('✅ 验证码已发送到邮箱');
+            } else alert(res.error || '发送失败');
+        }
+
+        async function verifyCode() {
+            const email = document.getElementById('email-input').value.trim();
+            const code = document.getElementById('code-input').value.trim();
+            const res = await apiFetch('/api/verify-code', {
+                method: 'POST',
+                body: JSON.stringify({
+                    email,
+                    code
+                })
+            });
+            if (res.success) {
+                currentToken = res.token;
+                currentEmail = res.email;
+                localStorage.setItem('token', currentToken);
+                showDashboard();
+            } else alert(res.error || '验证失败');
+        }
+
+        async function showDashboard() {
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('dashboard-screen').classList.remove('hidden');
+            document.getElementById('nav-user').classList.remove('hidden');
+            document.getElementById('user-email').textContent = currentEmail;
+
+            const data = await apiFetch('/api/records');
+            renderRecords(data.records);
+            renderQuota(data.used, data.max);
+        }
+
+        function renderQuota(used, max) {
+            document.getElementById('quota-text').innerHTML = `${used} / ${max}`;
+            document.getElementById('quota-progress').style.width = `${(used / max) * 100}%`;
+        }
+
+        function renderRecords(records) {
+            const container = document.getElementById('records-list');
+            container.innerHTML = records.length === 0 ?
+                `<div class="text-center py-12 text-zinc-400">暂无子域名记录</div>` :
+                records.map(r => `
+          <div class="glass rounded-3xl p-6 flex justify-between items-center micro-hover">
+            <div>
+              <div class="font-mono text-lg">${r.subdomain}.${r.main_domain}</div>
+              <div class="text-zinc-400 text-sm">→ ${r.target}</div>
+            </div>
+            <button onclick="deleteRecord(${r.id})" class="text-red-400 hover:text-red-500"><i class="fa-solid fa-trash"></i></button>
+          </div>
+        `).join('');
+        }
+
+        async function deleteRecord(id) {
+            if (!confirm('确定删除？')) return;
+            await apiFetch(`/api/records/${id}`, {
+                method: 'DELETE'
+            });
+            const data = await apiFetch('/api/records');
+            renderRecords(data.records);
+            renderQuota(data.used, data.max);
+        }
+
+        // 动态加载主域名
+        async function showAddModal() {
+            const res = await apiFetch('/api/domains');
+            const domains = res.domains || [];
+
+            const select = document.getElementById('modal-main-domain');
+            select.innerHTML = domains.map(d => `<option value="${d}">${d}</option>`).join('');
+
+            document.getElementById('add-modal').classList.remove('hidden');
+        }
+
+        function hideAddModal() {
+            document.getElementById('add-modal').classList.add('hidden');
+        }
+
+        async function addRecord() {
+            const subdomain = document.getElementById('modal-subdomain').value.trim();
+            const main_domain = document.getElementById('modal-main-domain').value;
+            const target = document.getElementById('modal-target').value.trim();
+
+            if (!subdomain || !main_domain || !target) return alert('请填写完整');
+
+            const res = await apiFetch('/api/records', {
+                method: 'POST',
+                body: JSON.stringify({
+                    subdomain,
+                    main_domain,
+                    target
+                })
+            });
+
+            if (res.success) {
+                hideAddModal();
+                const data = await apiFetch('/api/records');
+                renderRecords(data.records);
+                renderQuota(data.used, data.max);
+                alert('🎉 子域名创建成功！');
+            } else alert(res.error || '添加失败');
+        }
+
+        function logout() {
+            localStorage.removeItem('token');
+            location.reload();
+        }
+
+        window.onload = async() => {
+            const savedToken = localStorage.getItem('token');
+            if (savedToken) {
+                currentToken = savedToken;
+                const data = await apiFetch('/api/records').catch(() => null);
+                if (data && !data.error) {
+                    currentEmail = savedToken ? atob(savedToken).split('|')[0] : null;
+                    showDashboard();
+                    return;
+                }
+            }
+            document.getElementById('login-screen').classList.remove('hidden');
+        };
+    </script>
+</body>
+
+</html>
